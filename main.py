@@ -135,77 +135,100 @@ def main(save=False, save_path=None):
             print("Invalid saved data, please delete the saved data and try again")
             sys.exit(1)
 
-    # get jpeg data from the selected webcam
-    capture = cv2.VideoCapture(webcam_path)
-    capture.set(cv2.CAP_PROP_FRAME_WIDTH, FORCE_RESOLUTION['width'])
-    capture.set(cv2.CAP_PROP_FRAME_HEIGHT, FORCE_RESOLUTION['height'])
+    if webcam_path.startswith('/dev/video'):
+        # get jpeg data from the selected webcam
+        capture = cv2.VideoCapture(webcam_path)
+        capture.set(cv2.CAP_PROP_FRAME_WIDTH, FORCE_RESOLUTION['width'])
+        capture.set(cv2.CAP_PROP_FRAME_HEIGHT, FORCE_RESOLUTION['height'])
 
-    # ask for camera name
-    if camera_name is None:
-        camera_name = input("Enter camera name: ")
+        # ask for camera name
+        if camera_name is None:
+            camera_name = input("Enter camera name: ")
 
-    # try to scan the QR code and get the API key#
-    if api_key is None:
-        qcd = cv2.QRCodeDetector()
-        while api_key is None:
-            ret, frame = capture.read()
-            if not ret:
-                continue
-            data, bbox, _ = qcd.detectAndDecode(frame)
-            # draw bounding box
-            if bbox is not None:
-                cv2.polylines(frame, bbox.astype(int), True, (0, 255, 0), 2)
-                # check if the QR code is a valid API key
-                data_str = str(data)
-                splitted = data_str.split("?token=")
-                if len(splitted) > 1:
-                    api_key = splitted[1]
-                    print(f"API key found! ({api_key})")
+        # try to scan the QR code and get the API key#
+        if api_key is None:
+            qcd = cv2.QRCodeDetector()
+            while api_key is None:
+                ret, frame = capture.read()
+                if not ret:
+                    continue
+                data, bbox, _ = qcd.detectAndDecode(frame)
+                # draw bounding box
+                if bbox is not None:
+                    cv2.polylines(frame, bbox.astype(int), True, (0, 255, 0), 2)
+                    # check if the QR code is a valid API key
+                    data_str = str(data)
+                    splitted = data_str.split("?token=")
+                    if len(splitted) > 1:
+                        api_key = splitted[1]
+                        print(f"API key found! ({api_key})")
+                        break
+                cv2.imshow("Scan QR Code", frame)
+                if cv2.waitKey(1) == ord('q'):
                     break
-            cv2.imshow("Scan QR Code", frame)
-            if cv2.waitKey(1) == ord('q'):
-                break
-        cv2.destroyAllWindows()
+            cv2.destroyAllWindows()
 
-    if api_key is None:
-        print("API key not found, exiting...")
-        sys.exit(1)
+        if api_key is None:
+            print("API key not found, exiting...")
+            sys.exit(1)
 
-    if save and saved_data is None:
-        save_data = {
-            "api_key": api_key,
-            "camera_path": webcam_list[selected_webcam]['device_path'],
-            "interval": 10,
-            "camera_name": camera_name,
-        }
+        if save and saved_data is None:
+            save_data = {
+                "api_key": api_key,
+                "camera_path": webcam_list[selected_webcam]['device_path'],
+                "interval": 10,
+                "camera_name": camera_name,
+            }
 
-        if save_path is None:
-            save_path = './'
+            if save_path is None:
+                save_path = './'
 
-        with open(path.join(save_path, 'webcam.json'), 'w') as f:
-            json.dump(save_data, f)
+            with open(path.join(save_path, 'webcam.json'), 'w') as f:
+                json.dump(save_data, f)
 
-    print("Starting webcam...")
+        print("Starting webcam...")
 
-    try:
+        try:
+            do_info()
+            while True:
+                ret, frame = capture.read()
+                if not ret:
+                    break
+                jpeg_data = cv2.imencode('.jpg', frame)[1].tobytes()
+                do_snapshot(jpeg_data)
+                if saved_data is None or saved_data['interval'] is None:
+                    sleep(10)
+                else:
+                    sleep(saved_data['interval'])
+        except KeyboardInterrupt:
+            capture.release()
+            cv2.destroyAllWindows()
+        except Exception as e:
+            print(e)
+            capture.release()
+            cv2.destroyAllWindows()
+    elif webcam_path.startswith('http'):
+        # mjepg streamer from octoprint (snapshot url)
         do_info()
         while True:
-            ret, frame = capture.read()
-            if not ret:
+            try:
+                res = requests.get(webcam_path)
+                if res.status_code != 200:
+                    raise Exception(f"Invalid response code: {res.status_code}")
+                jpeg_data = res.content
+                do_snapshot(jpeg_data)
+                if saved_data is None or saved_data['interval'] is None:
+                    sleep(10)
+                else:
+                    sleep(saved_data['interval'])
+            except KeyboardInterrupt:
                 break
-            jpeg_data = cv2.imencode('.jpg', frame)[1].tobytes()
-            do_snapshot(jpeg_data)
-            if saved_data is None or saved_data['interval'] is None:
+            except Exception as e:
+                print(e)
                 sleep(10)
-            else:
-                sleep(saved_data['interval'])
-    except KeyboardInterrupt:
-        capture.release()
-        cv2.destroyAllWindows()
-    except Exception as e:
-        print(e)
-        capture.release()
-        cv2.destroyAllWindows()
+    else:
+        print("Invalid webcam path, exiting...")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

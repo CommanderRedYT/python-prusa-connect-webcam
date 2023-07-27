@@ -1,0 +1,13 @@
+[Unit]
+Description=python-prusa-webcam
+After=network.target
+
+[Service]
+Type=simple
+User=<user>
+WorkingDirectory=/path/to/python-prusa-webcam
+ExecStart=/usr/bin/python3 /path/to/python-prusa-webcam/main.py
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
